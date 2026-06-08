@@ -9,7 +9,7 @@ class Presence(commands.Cog):
     async def on_ready(self):
         activity = discord.Streaming(
             name="اسم البث الخاص بك",
-            url="https://www.twitch.tv/اسم_قناتك"
+            url="https://www.twitch.tv/adsqwertt11"
         )
         await self.bot.change_presence(activity=activity)
 
