@@ -8,7 +8,6 @@ from threading import Thread
 # --- الإعدادات ---
 SUPPORT_ROLE_ID = 1474552028545028292
 CATEGORY_ID = 1513150761654157421
-TWITCH_URL = "https://www.twitch.tv/adsqwertt11"
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 # --- خادم الحفاظ على البوت ---
@@ -96,7 +95,7 @@ bot = MyBot()
 async def يلا(ctx):
     embed = discord.Embed(
         title="✨ | مركز المساعدة الفنية",
-        description=f"أهلاً بك، هل تحتاج لمساعدة؟ اضغط على الزر أدناه لفتح تذكرة.\n\n━━━━━━━━━━━━━━\n💜 **تابعنا على تويتش:**\n{TWITCH_URL}\n━━━━━━━━━━━━━━",
+        description=f"أهلاً بك، هل تحتاج لمساعدة؟ اضغط على الزر أدناه لفتح تذكرة.\n\n━━━━━━━━━━━━━━\n💜 **منور التذكره:**\n{TWITCH_URL}\n━━━━━━━━━━━━━━",
         color=discord.Color.purple()
     )
     await ctx.send(embed=embed, view=TicketLauncher())
