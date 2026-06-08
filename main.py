@@ -5,7 +5,7 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- الإعدادات ---
+# --- إعدادات النظام ---
 SUPPORT_ROLE_ID = 1474552028545028292
 CHANNEL_ID_MSG = 1513150789030510622
 CATEGORY_ID = 1513150761654157421
@@ -19,7 +19,7 @@ def run(): app.run(host='0.0.0.0', port=8080)
 
 # --- كلاسات التكت (UI) ---
 class TicketModal(ui.Modal, title="『 نظام الدعم الفني 』"):
-    reason = ui.TextInput(label="ماهو سبب فتح التذكرة؟", style=discord.TextStyle.paragraph, placeholder="اكتب تفاصيل طلبك هنا...", min_length=5, required=True)
+    reason = ui.TextInput(label="سبب فتح التذكرة؟", style=discord.TextStyle.paragraph, placeholder="اكتب تفاصيل طلبك هنا...", min_length=5, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -66,10 +66,18 @@ class MyBot(commands.Bot):
         print(f"تم تسجيل الدخول بنجاح كـ {self.user}")
         channel = self.get_channel(CHANNEL_ID_MSG)
         if channel:
+            # مسح الرسائل القديمة (اختياري) لمنع التكرار
+            async for message in channel.history(limit=5):
+                if message.author == self.user:
+                    await message.delete()
+            
             embed = discord.Embed(title="⚙️ | مركز المساعدة الفنية", description="أهلاً بك، هل تحتاج لمساعدة؟ اضغط على الزر أدناه لفتح تذكرة.", color=discord.Color.dark_theme())
             await channel.send(embed=embed, view=TicketLauncher())
+            print("تم إرسال رسالة التذكرة بنجاح!")
 
 bot = MyBot()
+
 if __name__ == "__main__":
+    # تشغيل خادم الويب والبوت معاً
     Thread(target=run).start()
     bot.run(TOKEN)
