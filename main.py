@@ -103,6 +103,5 @@ async def يلا(ctx):
     await ctx.message.delete() # حذف رسالة الأمر للحفاظ على الفخامة
 
 if __name__ == "__main__":
-    Thread(target=run).start()
-    bot.load_extension('presence')
+    Thread(target=run).start() 
     bot.run(TOKEN)
