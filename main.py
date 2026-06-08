@@ -1,106 +1,83 @@
-import discord, os, flask, threading, json, asyncio
-from discord.ext import commands, tasks
-from discord import ui
+import discord
+from discord.ext import commands
+from discord import app_commands, ui
+import os
 
-# --- إعداد السيرفر الخفي ---
-app = flask.Flask('')
-@app.route('/')
-def home(): return "SYSTEM IS ONLINE"
-threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+TOKEN = os.environ.get("DISCORD_TOKEN")
+SUPPORT_ROLE_ID = 1474552028545028292
+CHANNEL_ID_MSG = 1513150789030510622
+CATEGORY_ID = 1513150761654157421
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+class TicketLauncher(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-# الإعدادات
-AUTH = [1306034100544737461, 1383948416975110184]
-ROOMS = {
-    "codes_in": 1513150814942789784, "codes_out": 1513150792998195273, "codes_logs": 1513210251984502784,
-    "give_in": 1513150816716849252, "give_out": 1513150791844757535,
-    "news_in": 1513150818583314583, "news_out": 1513150800065728513
-}
+    @ui.button(label="فتح تذكرة", style=discord.ButtonStyle.green, custom_id="open_ticket")
+    async def open_ticket(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(TicketModal())
 
-def load_db():
-    if not os.path.exists("codes.json"): return {"codes": {}}
-    with open("codes.json", "r") as f: return json.load(f)
+class TicketModal(ui.Modal, title="سبب فتح التذكرة"):
+    reason = ui.Select(placeholder="اختر سبب التذكرة", options=[
+        discord.SelectOption(label="اسئلة عامة أو خاصة"),
+        discord.SelectOption(label="شكوى"),
+        discord.SelectOption(label="شركة"),
+        discord.SelectOption(label="اعلان"),
+        discord.SelectOption(label="ابي شخص اونر"),
+        discord.SelectOption(label="الدعم الفني")
+    ])
 
-def save_db(data):
-    with open("codes.json", "w") as f: json.dump(data, f)
-
-# --- كلاس الأزرار ---
-class CodeView(ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @ui.button(label="تجربة حظك", style=discord.ButtonStyle.blurple, custom_id="code_btn")
-    async def btn(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.send_modal(CodeModal())
-
-class CodeModal(ui.Modal, title='🎫 التحقق من الكود'):
-    code = ui.TextInput(label='أدخل الكود:', style=discord.TextStyle.short)
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message("🔍 جاري البحث في السستم...", ephemeral=True)
-        await asyncio.sleep(2)
-        db = load_db()
-        if self.code.value in db["codes"]:
-            prize = db["codes"].pop(self.code.value)
-            save_db(db)
-            await interaction.edit_original_response(content=f"🎉 مبروك! ربحت: {prize}")
-            log = bot.get_channel(ROOMS["codes_logs"])
-            await log.send(f"🏆 **فائز جديد!**\n👤 الشخص: {interaction.user.mention}\n💎 الجائزة: {prize}\n🎟️ الكود: `{self.code.value}`")
-        else:
-            await interaction.edit_original_response(content="❌ لا.")
+        guild = interaction.guild
+        category = guild.get_channel(CATEGORY_ID)
+        ticket_number = len(category.channels) + 1
+        
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+            guild.get_role(SUPPORT_ROLE_ID): discord.PermissionOverwrite(read_messages=True, send_messages=False)
+        }
+        
+        channel = await guild.create_text_channel(
+            f"✧┇🎟┇✧・تكت・{ticket_number}",
+            category=category, overwrites=overwrites
+        )
+        
+        embed = discord.Embed(title="تم فتح التذكرة", description=f"السبب: {self.reason.values[0]}\nيرجى انتظار استلام الدعم الفني.", color=discord.Color.blue())
+        await channel.send(f"<@{interaction.user.id}> <@&{SUPPORT_ROLE_ID}>", embed=embed, view=SupportControls())
+        await interaction.response.send_message(f"تم فتح تذكرتك في {channel.mention}", ephemeral=True)
 
-# --- منطق البوت ---
-@tasks.loop(minutes=2)
-async def status_task():
-    await bot.change_presence(activity=discord.Streaming(name="adsqwertt11", url="https://www.twitch.tv/adsqwertt11"))
+class SupportControls(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-@bot.event
-async def on_ready():
-    status_task.start()
-    print("🚀 [SYSTEM]: النظام يعمل!")
+    @ui.button(label="استلام التذكرة", style=discord.ButtonStyle.primary, custom_id="claim_ticket")
+    async def claim(self, interaction: discord.Interaction, button: ui.Button):
+        if not any(role.id == SUPPORT_ROLE_ID for role in interaction.user.roles):
+            return await interaction.response.send_message("للإدارة فقط!", ephemeral=True)
+        
+        button.disabled = True
+        await interaction.channel.set_permissions(interaction.user, send_messages=True)
+        await interaction.channel.set_permissions(interaction.guild.get_role(SUPPORT_ROLE_ID), send_messages=False)
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f"تم استلام التذكرة من قبل {interaction.user.mention}")
 
-@bot.event
-async def on_message(message):
-    if message.author.bot or message.author.id not in AUTH: return
-    
-    # 1. نظام الأكواد
-    if message.channel.id == ROOMS["codes_in"]:
-        code = message.content.strip()
-        await message.channel.send("❓ هل أنت متأكد من إضافة هذا الكود؟ (نعم/لا)")
-        try:
-            msg = await bot.wait_for('message', check=lambda m: m.author.id == message.author.id, timeout=30)
-            if msg.content.lower() == "نعم":
-                await message.channel.send("🎁 ما هي الهدية؟")
-                prize_msg = await bot.wait_for('message', check=lambda m: m.author.id == message.author.id, timeout=30)
-                db = load_db()
-                db["codes"][code] = prize_msg.content
-                save_db(db)
-                await message.channel.send("✅ تم الإضافة بنجاح!")
-            else: await message.channel.send("❌ تم الإلغاء.")
-        except: await message.channel.send("❌ غير مفهوم، تم الإلغاء.")
+    @ui.button(label="قفل التذكرة", style=discord.ButtonStyle.danger, custom_id="close_ticket")
+    async def close(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.channel.delete()
 
-    # 2. نظام الجيف أواي
-    elif message.channel.id == ROOMS["give_in"]:
-        await message.channel.send("❓ هل هذا اسم الجيف أواي؟ (نعم/لا)")
-        try:
-            m = await bot.wait_for('message', check=lambda m: m.author.id == message.author.id, timeout=30)
-            if m.content.lower() == "نعم":
-                await message.channel.send("⏱️ حدد المدة (مثال: 10h, 5m):")
-                time = await bot.wait_for('message', check=lambda m: m.author.id == message.author.id, timeout=30)
-                out = bot.get_channel(ROOMS["give_out"])
-                await out.send(f"🎁 **جيف أواي: {message.content}**\n⏳ المدة: {time.content}\n✨ اضغط الزر للمشاركة!")
-                await message.channel.send("✅ تم النشر.")
-        except: await message.channel.send("❌ تم الإلغاء.")
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=discord.Intents.all())
 
-    # 3. نظام الأخبار
-    elif message.channel.id == ROOMS["news_in"]:
-        await message.channel.send("❓ متأكد من النشر؟ (نعم/لا)")
-        try:
-            m = await bot.wait_for('message', check=lambda m: m.author.id == message.author.id, timeout=30)
-            if m.content.lower() == "نعم":
-                out = bot.get_channel(ROOMS["news_out"])
-                await out.send(f"<@&1478799212312531089>\n📢 **خبر جديد:**\n{message.content}")
-                await message.channel.send("✅ تم النشر.")
-        except: await message.channel.send("❌ تم الإلغاء.")
+    async def setup_hook(self):
+        self.add_view(TicketLauncher())
+        self.add_view(SupportControls())
 
-bot.run(os.getenv('DISCORD_TOKEN'))
+    async def on_ready(self):
+        channel = self.get_channel(CHANNEL_ID_MSG)
+        embed = discord.Embed(title="الدعم الفني", description="أهلاً بك في الدعم الفني! للأسئلة أو الشكاوي أو أي استفسار، اضغط الزر أدناه.", color=discord.Color.gold())
+        await channel.send(embed=embed, view=TicketLauncher())
+        print(f"Logged in as {self.user}")
+
+bot = MyBot()
+bot.run(TOKEN)
