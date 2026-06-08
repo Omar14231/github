@@ -5,24 +5,21 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- إعدادات الخادم لمنع التوقف ---
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run_web():
-    app.run(host='0.0.0.0', port=8080)
-
 # --- الإعدادات ---
 SUPPORT_ROLE_ID = 1474552028545028292
 CHANNEL_ID_MSG = 1513150789030510622
 CATEGORY_ID = 1513150761654157421
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# --- كلاسات التكت ---
-class TicketModal(ui.Modal, title="طلب دعم فني"):
-    reason = ui.TextInput(label="سبب التذكرة", style=discord.TextStyle.paragraph, placeholder="اشرح مشكلتك بالتفصيل...", required=True)
+# --- خادم الحفاظ على البوت (Keep-Alive) ---
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot is Alive!"
+def run(): app.run(host='0.0.0.0', port=8080)
+
+# --- كلاسات التكت (UI) ---
+class TicketModal(ui.Modal, title="『 نظام الدعم الفني 』"):
+    reason = ui.TextInput(label="ماهو سبب فتح التذكرة؟", style=discord.TextStyle.paragraph, placeholder="اكتب تفاصيل طلبك هنا...", min_length=5, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -36,25 +33,25 @@ class TicketModal(ui.Modal, title="طلب دعم فني"):
         }
         channel = await guild.create_text_channel(f"ticket-{ticket_number}", category=category, overwrites=overwrites)
         
-        embed = discord.Embed(title="🎟 | تذكرة جديدة", description=f"**صاحب التذكرة:** {interaction.user.mention}\n**السبب:** {self.reason.value}", color=0x00FFFF)
+        embed = discord.Embed(title="🎟 | تذكرة دعم جديدة", description=f"**المستخدم:** {interaction.user.mention}\n**السبب:** {self.reason.value}", color=discord.Color.blue())
         await channel.send(f"<@{interaction.user.id}> <@&{SUPPORT_ROLE_ID}>", embed=embed, view=SupportControls())
-        await interaction.response.send_message(f"تم فتح التذكرة: {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ تم فتح التذكرة بنجاح: {channel.mention}", ephemeral=True)
 
 class SupportControls(ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @ui.button(label="استلام", style=discord.ButtonStyle.primary, custom_id="claim_btn")
+    @ui.button(label="استلام التذكرة", style=discord.ButtonStyle.primary, custom_id="claim_support_ticket", emoji="✅")
     async def claim(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.channel.set_permissions(interaction.guild.get_role(SUPPORT_ROLE_ID), send_messages=False)
         button.disabled = True
         await interaction.response.edit_message(view=self)
-        await interaction.channel.send(f"✅ تم استلام التذكرة من قبل {interaction.user.mention}")
-    @ui.button(label="قفل", style=discord.ButtonStyle.danger, custom_id="close_btn")
+        await interaction.channel.send(f"⚠️ تم استلام التذكرة من قبل: {interaction.user.mention}")
+    @ui.button(label="إغلاق", style=discord.ButtonStyle.danger, custom_id="close_support_ticket", emoji="🔒")
     async def close(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.channel.delete()
 
 class TicketLauncher(ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @ui.button(label="فتح تذكرة", style=discord.ButtonStyle.green, emoji="🎟", custom_id="open_btn")
+    @ui.button(label="فتح تذكرة", style=discord.ButtonStyle.green, custom_id="open_support_ticket", emoji="🎟")
     async def open(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(TicketModal())
 
@@ -66,11 +63,13 @@ class MyBot(commands.Bot):
         self.add_view(TicketLauncher())
         self.add_view(SupportControls())
     async def on_ready(self):
-        print(f"البوت جاهز: {self.user}")
+        print(f"تم تسجيل الدخول بنجاح كـ {self.user}")
+        channel = self.get_channel(CHANNEL_ID_MSG)
+        if channel:
+            embed = discord.Embed(title="⚙️ | مركز المساعدة الفنية", description="أهلاً بك، هل تحتاج لمساعدة؟ اضغط على الزر أدناه لفتح تذكرة.", color=discord.Color.dark_theme())
+            await channel.send(embed=embed, view=TicketLauncher())
 
 bot = MyBot()
-
-# تشغيل الويب والبوت معاً
 if __name__ == "__main__":
-    Thread(target=run_web).start()
+    Thread(target=run).start()
     bot.run(TOKEN)
