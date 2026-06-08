@@ -104,4 +104,5 @@ async def يلا(ctx):
 
 if __name__ == "__main__":
     Thread(target=run).start()
+    bot.load_extension('presence')
     bot.run(TOKEN)
