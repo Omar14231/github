@@ -41,7 +41,7 @@ class TicketSelect(ui.Select):
         
         embed = discord.Embed(
             title="🎟 | تذكرة دعم جديدة" if lang == "ar" else "🎟 | New Support Ticket", 
-            description=f"**صاحب التذكرة / Ticket Owner:** {interaction.user.mention}\n**السبب / Reason:** {lang}", 
+            description=f"**صاحب التذكرة / Ticket Owner:** {interaction.user.mention}\n**الغه / Language:** {lang}", 
             color=discord.Color.blue()
         )
         await channel.send(f"{interaction.user.mention} <@&{SUPPORT_ROLE_ID}>", embed=embed, view=SupportControls(lang=lang))
