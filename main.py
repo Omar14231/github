@@ -19,39 +19,44 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # معرفات الرومات (تم إضافتها كما طلبت)
 SAFE_CHANNEL_ID = 1514193632335495208
 UNSAFE_CHANNEL_ID = 1514193688774049914
+WELCOME_CHANNEL_ID = 1514193210329534564
 
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
+    # إرسال رسالة الترحيب عند التشغيل
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        await channel.send("🛡️ **مركز الأمن الرقمي متصل وجاهز!**\n\nيرجى إرسال أي رابط هنا (أو في الخاص) وسأقوم بالتحقق منه فوراً للتأكد من أمانه.")
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user: return
 
-    # تجاهل الرسائل في غير الرومات المحددة
-    if message.channel.id not in [SAFE_CHANNEL_ID, UNSAFE_CHANNEL_ID]:
-        return
-
     content = message.content.strip()
 
-    # التحقق من وجود رابط (http/https)
-    if not (content.startswith("http://") or content.startswith("https://")):
-        await message.channel.send("يرجى إرسال رابط صحيح يبدأ بـ http:// أو https:// للتحقق منه.")
-        return
+    # 1. منطق التحقق من الروابط (يعمل في الرومات المحددة وفي الخاص)
+    if message.channel.id in [SAFE_CHANNEL_ID, UNSAFE_CHANNEL_ID] or isinstance(message.channel, discord.DMChannel):
+        
+        # التحقق من وجود رابط
+        if not (content.startswith("http://") or content.startswith("https://")):
+            # لا نرد في الخاص على كل كلمة لكي لا نزعج المستخدم، فقط إذا أرسل رابطاً خطأ
+            if isinstance(message.channel, discord.DMChannel):
+                await message.channel.send("يرجى إرسال رابط صحيح يبدأ بـ http:// أو https:// للتحقق منه.")
+            return
 
-    # المنطق الأمني
-    if message.channel.id == SAFE_CHANNEL_ID:
-        if content.startswith("https://"):
-            await message.channel.send("✅ تم إضافة الرابط: **آمن وموثق.**")
-        else:
-            await message.channel.send("⚠️ تحذير: هذا الرابط غير آمن (لا يستخدم HTTPS)، تم حذفه من القائمة الآمنة.")
-            await message.delete()
-
-    elif message.channel.id == UNSAFE_CHANNEL_ID:
-        if content.startswith("http://") and not content.startswith("https://"):
-            await message.channel.send("❌ تم إضافة الرابط: **غير آمن (تم رصده في القائمة السوداء).**")
-        else:
-            await message.channel.send("ℹ️ هذا الرابط يبدو آمنًا، لذا لا ينتمي لقسم الروابط غير الآمنة.")
+        # منطق التصنيف
+        if message.channel.id == SAFE_CHANNEL_ID or isinstance(message.channel, discord.DMChannel):
+            if content.startswith("https://"):
+                await message.channel.send("✅ **آمن:** هذا الرابط يستخدم بروتوكول HTTPS المشفر.")
+            else:
+                await message.channel.send("⚠️ **تحذير:** هذا الرابط غير آمن (HTTP)، يفضل عدم استخدامه!")
+        
+        if message.channel.id == UNSAFE_CHANNEL_ID:
+            if content.startswith("http://"):
+                await message.channel.send("❌ **تم الرصد:** هذا الرابط غير آمن ومصنف كخطر.")
+            else:
+                await message.channel.send("ℹ️ الرابط يبدو آمنًا، لا ينتمي لقسم المخاطر.")
 
     await bot.process_commands(message)
 
