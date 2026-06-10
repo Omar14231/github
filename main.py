@@ -1,18 +1,23 @@
 import discord
 import asyncio
 import re
+import os
 from discord.ext import commands
 
-# الإعدادات
-TOKEN = 'ضع_التوكن_هنا'
-CATEGORY_ID = 1514271813297897645 
+# 1. إعداد المتغيرات من إعدادات موقع Render
+TOKEN = os.environ.get('DISCORD_TOKEN')
 
+# 2. التأكد من أن التوكن موجود
+if not TOKEN:
+    print("خطأ: يرجى وضع التوكن في Environment Variables باسم DISCORD_TOKEN")
+    exit()
+
+CATEGORY_ID = 1514271813297897645 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix="!", intents=intents)
 
-# تخزين: { "wave_id": {"owner": user_id, "channel": channel_id} }
+bot = commands.Bot(command_prefix="!", intents=intents)
 active_waves = {}
 
 def is_valid(w_id): return bool(re.match(r"^\d+\.\d$", w_id))
@@ -45,8 +50,10 @@ class CreateModal(discord.ui.Modal, title='صنع موجه'):
         await i.response.defer(ephemeral=True)
         await asyncio.sleep(5)
         
-        overwrites = {i.guild.default_role: discord.PermissionOverwrite(view_channel=False), i.user: discord.PermissionOverwrite(view_channel=True, connect=True)}
-        ch = await i.guild.create_voice_channel(name=w_id, category=i.guild.get_channel(CATEGORY_ID), overwrites=overwrites)
+        guild = i.guild
+        cat = guild.get_channel(CATEGORY_ID)
+        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False), i.user: discord.PermissionOverwrite(view_channel=True, connect=True)}
+        ch = await guild.create_voice_channel(name=w_id, category=cat, overwrites=overwrites)
         active_waves[w_id] = {"owner": i.user.id, "channel": ch.id}
         await i.user.move_to(ch)
         await msg.edit(content=f"تم صنع الموجه {w_id} بنجاح ✅")
@@ -62,9 +69,12 @@ class JoinModal(discord.ui.Modal, title='دخول موجه'):
         await i.response.defer(ephemeral=True)
         await asyncio.sleep(5)
         ch = i.guild.get_channel(active_waves[w_id]['channel'])
-        await ch.set_permissions(i.user, view_channel=True, connect=True)
-        await i.user.move_to(ch)
-        await msg.edit(content=f"تم الدخول بنجاح ✅")
+        if ch:
+            await ch.set_permissions(i.user, view_channel=True, connect=True)
+            await i.user.move_to(ch)
+            await msg.edit(content=f"تم الدخول بنجاح ✅")
+        else:
+            await msg.edit(content="❌ الروم غير موجود!")
         await asyncio.sleep(2)
         await msg.delete()
 
@@ -74,11 +84,18 @@ class LeaveModal(discord.ui.Modal, title='خروج من موجه'):
         w_id = self.w_id.value
         if w_id not in active_waves: return await i.response.send_message("❌ الموجة غير موجودة!", ephemeral=True)
         ch = i.guild.get_channel(active_waves[w_id]['channel'])
-        await ch.set_permissions(i.user, view_channel=False, connect=False)
-        if i.user.voice and i.user.voice.channel == ch: await i.user.move_to(None)
-        await i.response.send_message(f"تم الخروج النهائي من الموجه {w_id} ✅", ephemeral=True)
+        if ch:
+            await ch.set_permissions(i.user, view_channel=False, connect=False)
+            if i.user.voice and i.user.voice.channel == ch: await i.user.move_to(None)
+            await i.response.send_message(f"تم الخروج النهائي من الموجه {w_id} ✅", ephemeral=True)
+
+@bot.event
+async def on_ready():
+    bot.add_view(WaveView())
+    print(f'البوت {bot.user} متصل بنجاح!')
 
 @bot.command(name="887788718")
-async def setup(ctx): await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء:", view=WaveView())
+async def setup(ctx): 
+    await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء:", view=WaveView())
 
 bot.run(TOKEN)
