@@ -1,63 +1,59 @@
 import discord
-from discord.ext import commands, tasks
-from discord import ui, Embed
-import asyncio
-import datetime
+from discord.ext import commands
+import os
+from flask import Flask
+from threading import Thread
 
-# إعدادات البوت
+# إعداد Flask للحفاظ على البوت نشطاً على Render
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot is running!"
+def run(): app.run(host='0.0.0.0', port=8080)
+Thread(target=run).start()
+
+# إعداد البوت
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# الرومات (أضف الـ IDs الخاصة بك هنا)
-ROOM_CONTROL = 1514153684114739251
-ROLE_ID = "1478799212312531089"
-
-# دالة تحويل الوقت لثواني
-def parse_time(time_str):
-    unit = time_str[-1].lower()
-    value = int(time_str[:-1])
-    if unit == 'm': return value * 60
-    if unit == 'h': return value * 3600
-    if unit == 'd': return value * 86400
-    return value
+# معرفات الرومات (تم إضافتها كما طلبت)
+SAFE_CHANNEL_ID = 1514193632335495208
+UNSAFE_CHANNEL_ID = 1514193688774049914
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f'Logged in as {bot.user.name}')
 
-@bot.command()
-async def ابدا(ctx):
-    if ctx.channel.id == ROOM_CONTROL:
-        view = MainView()
-        embed = Embed(title="لوحة التحكم الرئيسية", description="اختر الميزة المطلوبة من الأزرار أدناه:", color=0x00aaff)
-        await ctx.send(embed=embed, view=view)
+@bot.event
+async def on_message(message):
+    if message.author == bot.user: return
 
-class MainView(ui.View):
-    def __init__(self): super().__init__(timeout=None)
+    # تجاهل الرسائل في غير الرومات المحددة
+    if message.channel.id not in [SAFE_CHANNEL_ID, UNSAFE_CHANNEL_ID]:
+        return
 
-    @ui.button(label="من ضد من", style=discord.ButtonStyle.primary, emoji="⚔️")
-    async def btn_vs(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.send_message("اكتب في الشات: `الفريق1 ضد الفريق2 المدة` (مثال: 5m)", ephemeral=True)
-        
-        def check(m): return m.author == interaction.user and m.channel.id == ROOM_CONTROL
-        msg = await bot.wait_for('message', check=check)
-        parts = msg.content.split()
-        team1, team2, time_raw = parts[0], parts[2], parts[3]
-        total_seconds = parse_time(time_raw)
+    content = message.content.strip()
 
-        # إنشاء رسالة العداد
-        embed = Embed(title="⚔️ مباراة قادمة", description=f"**{team1}** ضد **{team2}**\n\nالوقت المتبقي: {datetime.timedelta(seconds=total_seconds)}", color=0x00aaff)
-        message = await interaction.channel.send(f"<@&{ROLE_ID}>", embed=embed)
+    # التحقق من وجود رابط (http/https)
+    if not (content.startswith("http://") or content.startswith("https://")):
+        await message.channel.send("يرجى إرسال رابط صحيح يبدأ بـ http:// أو https:// للتحقق منه.")
+        return
 
-        # حلقة تحديث الوقت
-        while total_seconds > 0:
-            await asyncio.sleep(1 if total_seconds < 3600 else 10)
-            total_seconds -= (1 if total_seconds < 3600 else 10)
-            embed.description = f"**{team1}** ضد **{team2}**\n\nالوقت المتبقي: {datetime.timedelta(seconds=total_seconds)}"
-            await message.edit(embed=embed)
-        
-        await message.edit(embed=Embed(title="انتهى الوقت!", description=f"المباراة: {team1} vs {team2}", color=0xff0000))
+    # المنطق الأمني
+    if message.channel.id == SAFE_CHANNEL_ID:
+        if content.startswith("https://"):
+            await message.channel.send("✅ تم إضافة الرابط: **آمن وموثق.**")
+        else:
+            await message.channel.send("⚠️ تحذير: هذا الرابط غير آمن (لا يستخدم HTTPS)، تم حذفه من القائمة الآمنة.")
+            await message.delete()
 
+    elif message.channel.id == UNSAFE_CHANNEL_ID:
+        if content.startswith("http://") and not content.startswith("https://"):
+            await message.channel.send("❌ تم إضافة الرابط: **غير آمن (تم رصده في القائمة السوداء).**")
+        else:
+            await message.channel.send("ℹ️ هذا الرابط يبدو آمنًا، لذا لا ينتمي لقسم الروابط غير الآمنة.")
 
-bot.run(os.environ.get('DISCORD_TOKEN'))
+    await bot.process_commands(message)
+
+# تشغيل البوت باستخدام التوكن من المتغيرات البيئية
+bot.run(os.environ['DISCORD_TOKEN'])
