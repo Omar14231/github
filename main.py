@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord.ui import Button, View
 import threading
 from flask import Flask
-
+import os
 # إعداد Flask لخدمات الاستضافة مثل Render
 app = Flask(__name__)
 @app.route('/')
