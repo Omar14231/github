@@ -1,64 +1,73 @@
+import os
 import discord
 from discord.ext import commands
-import os
+from discord import app_commands
 from flask import Flask
 from threading import Thread
 
-# إعداد Flask للحفاظ على البوت نشطاً على Render
+# إعداد Flask ليبقى البوت نشطاً على Render
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is running!"
-def run(): app.run(host='0.0.0.0', port=8080)
-Thread(target=run).start()
+def home():
+    return "Bot is running!"
 
-# إعداد البوت
+def run_flask():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+# إعدادات البوت
+TOKEN = os.environ.get('DISCORD_TOKEN')
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# معرفات الرومات (تم إضافتها كما طلبت)
-SAFE_CHANNEL_ID = 1514193632335495208
-UNSAFE_CHANNEL_ID = 1514193688774049914
-WELCOME_CHANNEL_ID = 1514193210329534564
+# قاموس لتخزين الموجات النشطة { "رقم_الموجة": channel_id }
+active_waves = {}
 
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user.name}')
-    # إرسال رسالة الترحيب عند التشغيل
-    channel = bot.get_channel(WELCOME_CHANNEL_ID)
-    if channel:
-        await channel.send("🛡️ **مركز الأمن الرقمي متصل وجاهز!**\n\nيرجى إرسال أي رابط هنا (أو في الخاص) وسأقوم بالتحقق منه فوراً للتأكد من أمانه.")
+# مودال صنع الموجة
+class CreateWaveModal(discord.ui.Modal, title='صنع موجة جديدة'):
+    wave_id = discord.ui.TextInput(label='رقم الموجة (مثال: 13.7)', placeholder='0.1 - 10009.9', min_length=3, max_length=7)
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user: return
-
-    content = message.content.strip()
-
-    # 1. منطق التحقق من الروابط (يعمل في الرومات المحددة وفي الخاص)
-    if message.channel.id in [SAFE_CHANNEL_ID, UNSAFE_CHANNEL_ID] or isinstance(message.channel, discord.DMChannel):
+    async def on_submit(self, interaction: discord.Interaction):
+        w_id = self.wave_id.value
         
-        # التحقق من وجود رابط
-        if not (content.startswith("http://") or content.startswith("https://")):
-            # لا نرد في الخاص على كل كلمة لكي لا نزعج المستخدم، فقط إذا أرسل رابطاً خطأ
-            if isinstance(message.channel, discord.DMChannel):
-                await message.channel.send("يرجى إرسال رابط صحيح يبدأ بـ http:// أو https:// للتحقق منه.")
+        # التحقق من الصيغة (بسيطة)
+        if w_id in active_waves:
+            await interaction.response.send_message("❌ يوجد خطأ: هذه الموجة موجودة بالفعل!", ephemeral=True)
             return
 
-        # منطق التصنيف
-        if message.channel.id == SAFE_CHANNEL_ID or isinstance(message.channel, discord.DMChannel):
-            if content.startswith("https://"):
-                await message.channel.send("✅ **آمن:** هذا الرابط يستخدم بروتوكول HTTPS المشفر.")
-            else:
-                await message.channel.send("⚠️ **تحذير:** هذا الرابط غير آمن (HTTP)، يفضل عدم استخدامه!")
+        await interaction.response.send_message(f"جاري صنع الموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
         
-        if message.channel.id == UNSAFE_CHANNEL_ID:
-            if content.startswith("http://"):
-                await message.channel.send("❌ **تم الرصد:** هذا الرابط غير آمن ومصنف كخطر.")
-            else:
-                await message.channel.send("ℹ️ الرابط يبدو آمنًا، لا ينتمي لقسم المخاطر.")
+        # إنشاء الروم (مقفل للجميع إلا الشخص)
+        guild = interaction.guild
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        channel = await guild.create_text_channel(name=f"wave-{w_id}", overwrites=overwrites)
+        active_waves[w_id] = channel.id
+        
+        await interaction.followup.send(f"✅ تم إنشاء الموجه {w_id} بنجاح!", ephemeral=True)
 
-    await bot.process_commands(message)
+# واجهة الأزرار
+class WaveView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-# تشغيل البوت باستخدام التوكن من المتغيرات البيئية
-bot.run(os.environ['DISCORD_TOKEN'])
+    @discord.ui.button(label="صنع موجه", style=discord.ButtonStyle.green)
+    async def create_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CreateWaveModal())
+
+    @discord.ui.button(label="دخول موجه", style=discord.ButtonStyle.blurple)
+    async def join_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # هنا يتم إضافة كود البحث والدخول للموجة
+        await interaction.response.send_message("جاري الدخول للموجه... (تحتاج لربط البحث)", ephemeral=True)
+
+@bot.command()
+async def start_wave(ctx):
+    if ctx.message.content == "!887788718":
+        await ctx.send("مرحباً بك في نظام Walkie-Talkie:", view=WaveView())
+
+# تشغيل البوت و Flask
+if __name__ == "__main__":
+    Thread(target=run_flask).start()
+    bot.run(TOKEN)
