@@ -12,6 +12,7 @@ def home():
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
+TOKEN = os.environ.get('DISCORD_TOKEN')
 
 # إعدادات البوت
 intents = discord.Intents.default()
@@ -83,7 +84,7 @@ async def on_message(message):
             await channel.send(embed=embed)
             await message.add_reaction("✅") # تأكيد الإرسال
 
-bot.run('YOUR_TOKEN_HERE')
+bot.run('TOKEN')
 
 # تشغيل Flask في الخلفية
 if __name__ == "__main__":
