@@ -5,6 +5,7 @@ from discord.ext import commands
 from flask import Flask
 from threading import Thread
 
+# --- إعدادات ---
 app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is running!"
@@ -18,8 +19,7 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# تخزين { "wave_id": channel_id }
-active_waves = {}
+active_waves = {} # { "wave_id": channel_id }
 
 class MainWaveView(discord.ui.View):
     def __init__(self):
@@ -35,30 +35,37 @@ class MainWaveView(discord.ui.View):
 
     @discord.ui.button(label="خروج من الموجه", style=discord.ButtonStyle.red, custom_id="btn_leave")
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.voice and interaction.user.voice.channel and interaction.user.voice.channel.id in active_waves.values():
+        if interaction.user.voice:
             await interaction.user.move_to(None)
-            await interaction.response.send_message("تم خروجك من الموجة.", ephemeral=True)
+            await interaction.response.send_message("تم خروجك من الموجه بنجاح ✅", ephemeral=True)
         else:
-            await interaction.response.send_message("أنت لست داخل موجة حالياً!", ephemeral=True)
+            await interaction.response.send_message("أنت لست داخل موجه! ❌", ephemeral=True)
 
-class CreateWaveModal(discord.ui.Modal, title='صنع موجة'):
-    wave_id = discord.ui.TextInput(label='رقم الموجة', placeholder='مثال: 13.7')
+class CreateWaveModal(discord.ui.Modal, title='صنع موجه'):
+    wave_id = discord.ui.TextInput(label='رقم الموجة', placeholder='00.0')
 
     async def on_submit(self, interaction: discord.Interaction):
         w_id = self.wave_id.value
         if w_id in active_waves:
-            return await interaction.response.send_message("❌ هذه الموجة موجودة بالفعل! استخدم زر الدخول.", ephemeral=True)
+            return await interaction.response.send_message("يوجد خطأ ❌: هذه الموجة موجودة بالفعل!", ephemeral=True)
         
-        await interaction.response.send_message(f"⌛ جاري صنع الموجة {w_id}...", ephemeral=True)
+        await interaction.response.send_message(f"جاري صنع الموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
         await asyncio.sleep(5)
         
         guild = interaction.guild
         category = guild.get_channel(CATEGORY_ID)
-        channel = await guild.create_voice_channel(name=w_id, category=category)
+        
+        # الأذونات: خاص فقط لصاحب الموجه
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=False),
+            interaction.user: discord.PermissionOverwrite(connect=True, view_channel=True)
+        }
+        
+        channel = await guild.create_voice_channel(name=w_id, category=category, overwrites=overwrites)
         active_waves[w_id] = channel.id
         
         await interaction.user.move_to(channel)
-        await interaction.followup.send(f"✅ تم صنع الموجة {w_id} ونقلك إليها.", ephemeral=True)
+        await interaction.followup.send(f"تم العملية ✅", ephemeral=True)
 
 class JoinWaveModal(discord.ui.Modal, title='دخول موجه'):
     wave_id = discord.ui.TextInput(label='رقم الموجة')
@@ -66,11 +73,16 @@ class JoinWaveModal(discord.ui.Modal, title='دخول موجه'):
     async def on_submit(self, interaction: discord.Interaction):
         w_id = self.wave_id.value
         if w_id not in active_waves:
-            return await interaction.response.send_message("❌ الموجة غير موجودة!", ephemeral=True)
+            return await interaction.response.send_message("يوجد خطأ ❌: الموجه غير موجودة أو لم يتم صنعها!", ephemeral=True)
+        
+        await interaction.response.send_message(f"جاري الدخول للموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
+        await asyncio.sleep(5)
         
         channel = interaction.guild.get_channel(active_waves[w_id])
+        # إعطاء صلاحية دخول مؤقتة للشخص الذي يدخل الموجه
+        await channel.set_permissions(interaction.user, connect=True, view_channel=True)
         await interaction.user.move_to(channel)
-        await interaction.response.send_message(f"✅ تم سحبك للموجة {w_id}.", ephemeral=True)
+        await interaction.followup.send(f"تم العملية ✅", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -79,7 +91,7 @@ async def on_ready():
 
 @bot.command(name="887788718")
 async def wave_sys(ctx):
-    await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء:", view=MainWaveView())
+    await ctx.send("📡 **نظام الموجات**\nاختر الإجراء:", view=MainWaveView())
 
 if __name__ == "__main__":
     Thread(target=run_flask).start()
