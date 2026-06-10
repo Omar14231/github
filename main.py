@@ -19,7 +19,7 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-active_waves = {} # { "wave_id": channel_id }
+active_waves = {} 
 
 class MainWaveView(discord.ui.View):
     def __init__(self):
@@ -45,13 +45,14 @@ class CreateWaveModal(discord.ui.Modal, title='صنع موجه'):
         if w_id in active_waves:
             return await interaction.response.send_message("يوجد خطأ ❌: هذه الموجة موجودة بالفعل!", ephemeral=True)
         
-        await interaction.response.send_message(f"جاري صنع الموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
+        # رسالة عامة للكل
+        msg = await interaction.channel.send(f"جاري صنع الموجه {w_id}... <a:emoji_1:1514266487479599306>")
+        await interaction.response.defer(ephemeral=True) # تأكيد التفاعل
+        
         await asyncio.sleep(5)
         
         guild = interaction.guild
         category = guild.get_channel(CATEGORY_ID)
-        
-        # الأذونات: خاص فقط لمن صنعها
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=False),
             interaction.user: discord.PermissionOverwrite(connect=True, view_channel=True)
@@ -61,7 +62,11 @@ class CreateWaveModal(discord.ui.Modal, title='صنع موجه'):
         active_waves[w_id] = channel.id
         
         await interaction.user.move_to(channel)
-        await interaction.followup.send(f"تم العملية ✅", ephemeral=True)
+        
+        # تعديل الرسالة ثم حذفها
+        await msg.edit(content=f"تم العملية ✅")
+        await asyncio.sleep(2)
+        await msg.delete()
 
 class JoinWaveModal(discord.ui.Modal, title='دخول موجه'):
     wave_id = discord.ui.TextInput(label='رقم الموجة')
@@ -71,26 +76,29 @@ class JoinWaveModal(discord.ui.Modal, title='دخول موجه'):
         if w_id not in active_waves:
             return await interaction.response.send_message("يوجد خطأ ❌: الموجه غير موجودة!", ephemeral=True)
         
-        await interaction.response.send_message(f"جاري الدخول للموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
+        msg = await interaction.channel.send(f"جاري الدخول للموجه {w_id}... <a:emoji_1:1514266487479599306>")
+        await interaction.response.defer(ephemeral=True)
+        
         await asyncio.sleep(5)
         
         channel = interaction.guild.get_channel(active_waves[w_id])
         await channel.set_permissions(interaction.user, connect=True, view_channel=True)
         await interaction.user.move_to(channel)
-        await interaction.followup.send(f"تم العملية ✅", ephemeral=True)
+        
+        await msg.edit(content=f"تم العملية ✅")
+        await asyncio.sleep(2)
+        await msg.delete()
 
 class LeaveWaveModal(discord.ui.Modal, title='خروج من موجه'):
-    wave_id = discord.ui.TextInput(label='رقم الموجة التي تريد إخفاءها')
+    wave_id = discord.ui.TextInput(label='رقم الموجه')
 
     async def on_submit(self, interaction: discord.Interaction):
         w_id = self.wave_id.value
         if w_id not in active_waves:
-            return await interaction.response.send_message("يوجد خطأ ❌: هذه الموجة غير موجودة!", ephemeral=True)
+            return await interaction.response.send_message("يوجد خطأ ❌: الموجه غير موجودة!", ephemeral=True)
         
         channel = interaction.guild.get_channel(active_waves[w_id])
-        # إخفاء الروم عن المستخدم (سحب الصلاحيات)
         await channel.set_permissions(interaction.user, connect=False, view_channel=False)
-        # إخراجه من الصوت
         if interaction.user.voice and interaction.user.voice.channel == channel:
             await interaction.user.move_to(None)
             
