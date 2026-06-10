@@ -59,5 +59,5 @@ class MainView(ui.View):
         
         await message.edit(embed=Embed(title="انتهى الوقت!", description=f"المباراة: {team1} vs {team2}", color=0xff0000))
 
-# ضع التوكن الخاص بك هنا أو استخدم os.getenv
-bot.run('YOUR_DISCORD_TOKEN')
+
+bot.run(os.environ.get('DISCORD_TOKEN'))
