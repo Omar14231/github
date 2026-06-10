@@ -1,11 +1,11 @@
 import os
 import discord
 import asyncio
+import re
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
 
-# --- إعدادات ---
 app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is running!"
@@ -13,41 +13,48 @@ def run_flask(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
 TOKEN = os.environ.get('DISCORD_TOKEN')
 CATEGORY_ID = 1514271813297897645 
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-active_waves = {} 
+# تخزين { "wave_id": {"owner": user_id, "channel": channel_id} }
+active_waves = {}
+
+# دالة التأكد من التنسيق (رقم.رقم واحد فقط)
+def is_valid_format(w_id):
+    # Regex: رقم واحد أو أكثر، ثم نقطة، ثم رقم واحد فقط
+    return bool(re.match(r"^\d+\.\d$", w_id))
 
 class MainWaveView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-
+    
     @discord.ui.button(label="صنع موجه", style=discord.ButtonStyle.green, custom_id="btn_create")
     async def create(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CreateWaveModal())
 
-    @discord.ui.button(label="دخول موجه", style=discord.ButtonStyle.blurple, custom_id="btn_join")
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(JoinWaveModal())
-
-    @discord.ui.button(label="خروج من الموجه", style=discord.ButtonStyle.red, custom_id="btn_leave")
-    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(LeaveWaveModal())
-
 class CreateWaveModal(discord.ui.Modal, title='صنع موجه'):
-    wave_id = discord.ui.TextInput(label='رقم الموجة', placeholder='00.0')
+    wave_id = discord.ui.TextInput(label='رقم الموجة', placeholder='مثال: 19.9')
 
     async def on_submit(self, interaction: discord.Interaction):
         w_id = self.wave_id.value
-        if w_id in active_waves:
-            return await interaction.response.send_message("يوجد خطأ ❌: هذه الموجة موجودة بالفعل!", ephemeral=True)
         
-        # رسالة عامة للكل
-        msg = await interaction.channel.send(f"جاري صنع الموجه {w_id}... <a:emoji_1:1514266487479599306>")
-        await interaction.response.defer(ephemeral=True) # تأكيد التفاعل
+        # 1. التحقق من التنسيق
+        if not is_valid_format(w_id):
+            return await interaction.response.send_message("❌ خطأ: التنسيق يجب أن يكون (رقم.رقم) مثال: 19.9", ephemeral=True)
+        
+        # 2. التحقق من عدد الموجات (مسموح موجتين فقط لكل شخص)
+        user_waves = [w for w in active_waves.values() if w['owner'] == interaction.user.id]
+        if len(user_waves) >= 2:
+            return await interaction.response.send_message("❌ لا يمكنك صنع أكثر من موجتين!", ephemeral=True)
+
+        if w_id in active_waves:
+            return await interaction.response.send_message("❌ هذه الموجة موجودة بالفعل!", ephemeral=True)
+
+        # 3. الرسالة العامة
+        msg = await interaction.channel.send(f"جاري صنع الموجه لـ {interaction.user.mention}... <a:emoji_1:1514266487479599306>")
+        await interaction.response.defer(ephemeral=True)
         
         await asyncio.sleep(5)
         
@@ -59,50 +66,13 @@ class CreateWaveModal(discord.ui.Modal, title='صنع موجه'):
         }
         
         channel = await guild.create_voice_channel(name=w_id, category=category, overwrites=overwrites)
-        active_waves[w_id] = channel.id
+        active_waves[w_id] = {"owner": interaction.user.id, "channel": channel.id}
         
         await interaction.user.move_to(channel)
         
-        # تعديل الرسالة ثم حذفها
-        await msg.edit(content=f"تم العملية ✅")
+        await msg.edit(content=f"تم صنع الموجه {w_id} بنجاح ✅")
         await asyncio.sleep(2)
         await msg.delete()
-
-class JoinWaveModal(discord.ui.Modal, title='دخول موجه'):
-    wave_id = discord.ui.TextInput(label='رقم الموجة')
-
-    async def on_submit(self, interaction: discord.Interaction):
-        w_id = self.wave_id.value
-        if w_id not in active_waves:
-            return await interaction.response.send_message("يوجد خطأ ❌: الموجه غير موجودة!", ephemeral=True)
-        
-        msg = await interaction.channel.send(f"جاري الدخول للموجه {w_id}... <a:emoji_1:1514266487479599306>")
-        await interaction.response.defer(ephemeral=True)
-        
-        await asyncio.sleep(5)
-        
-        channel = interaction.guild.get_channel(active_waves[w_id])
-        await channel.set_permissions(interaction.user, connect=True, view_channel=True)
-        await interaction.user.move_to(channel)
-        
-        await msg.edit(content=f"تم العملية ✅")
-        await asyncio.sleep(2)
-        await msg.delete()
-
-class LeaveWaveModal(discord.ui.Modal, title='خروج من موجه'):
-    wave_id = discord.ui.TextInput(label='رقم الموجه')
-
-    async def on_submit(self, interaction: discord.Interaction):
-        w_id = self.wave_id.value
-        if w_id not in active_waves:
-            return await interaction.response.send_message("يوجد خطأ ❌: الموجه غير موجودة!", ephemeral=True)
-        
-        channel = interaction.guild.get_channel(active_waves[w_id])
-        await channel.set_permissions(interaction.user, connect=False, view_channel=False)
-        if interaction.user.voice and interaction.user.voice.channel == channel:
-            await interaction.user.move_to(None)
-            
-        await interaction.response.send_message(f"تم العملية ✅: تم خروجك وإخفاء الموجه {w_id} عنك.", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -111,7 +81,7 @@ async def on_ready():
 
 @bot.command(name="887788718")
 async def wave_sys(ctx):
-    await ctx.send("📡 **نظام الموجات**\nاختر الإجراء:", view=MainWaveView())
+    await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء:", view=MainWaveView())
 
 if __name__ == "__main__":
     Thread(target=run_flask).start()
