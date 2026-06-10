@@ -4,6 +4,7 @@ from discord.ui import Button, View
 import threading
 from flask import Flask
 import os
+TOKEN = os.environ.get('DISCORD_TOKEN')
 # إعداد Flask لخدمات الاستضافة مثل Render
 app = Flask(__name__)
 @app.route('/')
@@ -12,7 +13,6 @@ def home():
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
-TOKEN = os.environ.get('DISCORD_TOKEN')
 
 # إعدادات البوت
 intents = discord.Intents.default()
