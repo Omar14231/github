@@ -1,73 +1,90 @@
-import os
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord.ui import Button, View
+import threading
 from flask import Flask
-from threading import Thread
 
-# إعداد Flask ليبقى البوت نشطاً على Render
+# إعداد Flask لخدمات الاستضافة مثل Render
 app = Flask(__name__)
 @app.route('/')
 def home():
     return "Bot is running!"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(host='0.0.0.0', port=8080)
 
 # إعدادات البوت
-TOKEN = os.environ.get('DISCORD_TOKEN')
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# قاموس لتخزين الموجات النشطة { "رقم_الموجة": channel_id }
-active_waves = {}
+# قاموس لتخزين حالة المستخدمين
+# {user_id: {"mode": "news" or "worldcup", "active": True}}
+user_sessions = {}
 
-# مودال صنع الموجة
-class CreateWaveModal(discord.ui.Modal, title='صنع موجة جديدة'):
-    wave_id = discord.ui.TextInput(label='رقم الموجة (مثال: 13.7)', placeholder='0.1 - 10009.9', min_length=3, max_length=7)
+# الرومات المطلوبة
+ROOM_TRIGGER = 1514153684114739251
+ROOM_NEWS = 1514154784846774372
+ROOM_WC = 1514156912999006238
 
-    async def on_submit(self, interaction: discord.Interaction):
-        w_id = self.wave_id.value
-        
-        # التحقق من الصيغة (بسيطة)
-        if w_id in active_waves:
-            await interaction.response.send_message("❌ يوجد خطأ: هذه الموجة موجودة بالفعل!", ephemeral=True)
-            return
-
-        await interaction.response.send_message(f"جاري صنع الموجه... <a:emoji_1:1514266487479599306>", ephemeral=True)
-        
-        # إنشاء الروم (مقفل للجميع إلا الشخص)
-        guild = interaction.guild
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        channel = await guild.create_text_channel(name=f"wave-{w_id}", overwrites=overwrites)
-        active_waves[w_id] = channel.id
-        
-        await interaction.followup.send(f"✅ تم إنشاء الموجه {w_id} بنجاح!", ephemeral=True)
-
-# واجهة الأزرار
-class WaveView(discord.ui.View):
+class MenuButtons(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="صنع موجه", style=discord.ButtonStyle.green)
-    async def create_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CreateWaveModal())
+    @discord.ui.button(label="أخبار", style=discord.ButtonStyle.primary)
+    async def news_btn(self, interaction: discord.Interaction, button: Button):
+        user_sessions[interaction.user.id] = {"mode": "news", "active": True}
+        await interaction.response.send_message("تم تفعيل وضع الأخبار! أي رسالة ستكتبها الآن سيتم إرسالها للروم المخصص.", ephemeral=True)
 
-    @discord.ui.button(label="دخول موجه", style=discord.ButtonStyle.blurple)
-    async def join_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # هنا يتم إضافة كود البحث والدخول للموجة
-        await interaction.response.send_message("جاري الدخول للموجه... (تحتاج لربط البحث)", ephemeral=True)
+    @discord.ui.button(label="مونديل", style=discord.ButtonStyle.success)
+    async def wc_btn(self, interaction: discord.Interaction, button: Button):
+        user_sessions[interaction.user.id] = {"mode": "worldcup", "active": True}
+        await interaction.response.send_message("تم تفعيل وضع المونديل! أي رسالة ستكتبها الآن سيتم إرسالها للروم المخصص.", ephemeral=True)
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user}')
 
 @bot.command()
-async def start_wave(ctx):
-    if ctx.message.content == "!887788718":
-        await ctx.send("مرحباً بك في نظام Walkie-Talkie:", view=WaveView())
+async def يلا(ctx):
+    if ctx.channel.id == ROOM_TRIGGER:
+        await ctx.send("اختر الوضع المناسب:", view=MenuButtons())
 
-# تشغيل البوت و Flask
+@bot.command()
+async def الغاء(ctx):
+    if ctx.author.id in user_sessions:
+        del user_sessions[ctx.author.id]
+        await ctx.send("تم الإلغاء بنجاح.")
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    # معالجة الأوامر العادية
+    if message.content.startswith("!"):
+        await bot.process_commands(message)
+        return
+
+    # إذا كان المستخدم في وضع مفعل
+    if message.author.id in user_sessions and message.channel.id == ROOM_TRIGGER:
+        session = user_sessions[message.author.id]
+        
+        target_id = ROOM_NEWS if session["mode"] == "news" else ROOM_WC
+        channel = bot.get_channel(target_id)
+        
+        if channel:
+            # رسالة بتنسيق فنان (Embed) باللون الأزرق
+            embed = discord.Embed(
+                description=message.content,
+                color=discord.Color.blue()
+            )
+            embed.set_author(name=message.author.name, icon_url=message.author.avatar.url)
+            await channel.send(embed=embed)
+            await message.add_reaction("✅") # تأكيد الإرسال
+
+bot.run('YOUR_TOKEN_HERE')
+
+# تشغيل Flask في الخلفية
 if __name__ == "__main__":
-    Thread(target=run_flask).start()
-    bot.run(TOKEN)
+    threading.Thread(target=run_flask).start()
