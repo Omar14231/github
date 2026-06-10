@@ -1,91 +1,77 @@
+import os
 import discord
 from discord.ext import commands
-from discord.ui import Button, View
-import threading
 from flask import Flask
-import os
-TOKEN = os.environ.get('DISCORD_TOKEN')
-# إعداد Flask لخدمات الاستضافة مثل Render
+from threading import Thread
+
+# إعداد Flask ليبقى البوت نشطاً
 app = Flask(__name__)
 @app.route('/')
 def home():
     return "Bot is running!"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
 # إعدادات البوت
+TOKEN = os.environ.get('DISCORD_TOKEN')
+CATEGORY_ID = 1514271813297897645  # المجلد المحدد الذي طلبت البوت ينشئ فيه
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# قاموس لتخزين حالة المستخدمين
-# {user_id: {"mode": "news" or "worldcup", "active": True}}
-user_sessions = {}
+active_waves = {}
 
-# الرومات المطلوبة
-ROOM_TRIGGER = 1514153684114739251
-ROOM_NEWS = 1514154784846774372
-ROOM_WC = 1514156912999006238
+class CreateWaveModal(discord.ui.Modal, title='صنع موجة جديدة'):
+    wave_id = discord.ui.TextInput(label='رقم الموجة (مثال: 13.7)', placeholder='0.1 - 10009.9', min_length=3, max_length=7)
 
-class MenuButtons(View):
+    async def on_submit(self, interaction: discord.Interaction):
+        w_id = self.wave_id.value
+        
+        if w_id in active_waves:
+            await interaction.response.send_message("❌ يوجد خطأ: هذه الموجة موجودة بالفعل!", ephemeral=True)
+            return
+
+        await interaction.response.send_message(f"جاري صنع الموجه {w_id} <a:emoji_1:1514266487479599306>", ephemeral=True)
+        
+        guild = interaction.guild
+        # جلب الفئة (Category) المحددة
+        category = guild.get_channel(CATEGORY_ID)
+        
+        # إعداد الأذونات (إخفاء عن الجميع، إظهار لصاحب الموجة فقط)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        # إنشاء الروم داخل الفئة المحددة
+        channel = await guild.create_text_channel(
+            name=f"wave-{w_id}", 
+            category=category, 
+            overwrites=overwrites
+        )
+        active_waves[w_id] = channel.id
+        
+        await interaction.followup.send(f"✅ تم إنشاء الموجه {w_id} بنجاح داخل المجلد المطلوب.", ephemeral=True)
+
+class WaveView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="أخبار", style=discord.ButtonStyle.primary)
-    async def news_btn(self, interaction: discord.Interaction, button: Button):
-        user_sessions[interaction.user.id] = {"mode": "news", "active": True}
-        await interaction.response.send_message("تم تفعيل وضع الأخبار! أي رسالة ستكتبها الآن سيتم إرسالها للروم المخصص.", ephemeral=True)
+    @discord.ui.button(label="صنع موجه", style=discord.ButtonStyle.green)
+    async def create_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CreateWaveModal())
 
-    @discord.ui.button(label="مونديل", style=discord.ButtonStyle.success)
-    async def wc_btn(self, interaction: discord.Interaction, button: Button):
-        user_sessions[interaction.user.id] = {"mode": "worldcup", "active": True}
-        await interaction.response.send_message("تم تفعيل وضع المونديل! أي رسالة ستكتبها الآن سيتم إرسالها للروم المخصص.", ephemeral=True)
-
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user}')
+    @discord.ui.button(label="دخول موجه", style=discord.ButtonStyle.blurple)
+    async def join_wave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("أدخل رقم الموجة للدخول...", ephemeral=True)
 
 @bot.command()
-async def يلا(ctx):
-    if ctx.channel.id == ROOM_TRIGGER:
-        await ctx.send("اختر الوضع المناسب:", view=MenuButtons())
+async def wave_sys(ctx):
+    if ctx.message.content == "!887788718":
+        await ctx.send("نظام الموجات - اختر الإجراء:", view=WaveView())
 
-@bot.command()
-async def الغاء(ctx):
-    if ctx.author.id in user_sessions:
-        del user_sessions[ctx.author.id]
-        await ctx.send("تم الإلغاء بنجاح.")
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    # معالجة الأوامر العادية
-    if message.content.startswith("!"):
-        await bot.process_commands(message)
-        return
-
-    # إذا كان المستخدم في وضع مفعل
-    if message.author.id in user_sessions and message.channel.id == ROOM_TRIGGER:
-        session = user_sessions[message.author.id]
-        
-        target_id = ROOM_NEWS if session["mode"] == "news" else ROOM_WC
-        channel = bot.get_channel(target_id)
-        
-        if channel:
-            # رسالة بتنسيق فنان (Embed) باللون الأزرق
-            embed = discord.Embed(
-                description=message.content,
-                color=discord.Color.blue()
-            )
-            embed.set_author(name=message.author.name, icon_url=message.author.avatar.url)
-            await channel.send(embed=embed)
-            await message.add_reaction("✅") # تأكيد الإرسال
-
-bot.run('TOKEN')
-
-# تشغيل Flask في الخلفية
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
+    Thread(target=run_flask).start()
+    bot.run(TOKEN)
