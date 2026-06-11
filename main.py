@@ -1,24 +1,17 @@
 import discord
 import asyncio
-import re
 import os
 from discord.ext import commands
 
-# قراءة التوكن من إعدادات الموقع
 TOKEN = os.environ.get('DISCORD_TOKEN')
+CATEGORY_ID = 1514271813297897645 
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# تخزين الموجات
-active_waves = {}
-
-# التحقق من تنسيق الرقم (رقم.رقم)
-def is_valid(w_id): 
-    return bool(re.match(r"^\d+\.\d$", w_id))
+active_waves = {} 
 
 class WaveView(discord.ui.View):
     def __init__(self):
@@ -41,20 +34,28 @@ class CreateModal(discord.ui.Modal, title='صنع موجه'):
     
     async def on_submit(self, i: discord.Interaction):
         w_id = self.w_id.value
-        if not is_valid(w_id): return await i.response.send_message("❌ الصيغة الصحيحة هي (رقم.رقم) مثل 19.9", ephemeral=True)
-        if any(w['owner'] == i.user.id for w in active_waves.values()): return await i.response.send_message("❌ لديك موجة واحدة بالفعل!", ephemeral=True)
-        if w_id in active_waves: return await i.response.send_message("❌ هذه الموجة موجودة حالياً!", ephemeral=True)
+        # التحقق من أن رقم الموجه لا يتكرر
+        if w_id in active_waves:
+            return await i.response.send_message("❌ خطأ: هذه الموجة موجودة بالفعل!", ephemeral=True)
         
-        msg = await i.channel.send(f"جاري صنع الموجه {w_id} لـ {i.user.mention}... <a:emoji_1:1514266487479599306>")
-        await i.response.defer(ephemeral=True)
-        await asyncio.sleep(5)
+        # حجز الرقم فوراً لمنع التكرار
+        active_waves[w_id] = "pending" 
         
-        overwrites = {i.guild.default_role: discord.PermissionOverwrite(view_channel=False), i.user: discord.PermissionOverwrite(view_channel=True, connect=True)}
-        ch = await i.guild.create_voice_channel(name=w_id, category=None, overwrites=overwrites)
-        active_waves[w_id] = {"owner": i.user.id, "channel": ch.id}
-        await i.user.move_to(ch)
-        await msg.edit(content=f"تم صنع الموجه {w_id} بنجاح ✅")
-        await asyncio.sleep(2)
+        guild = i.guild
+        category = guild.get_channel(CATEGORY_ID)
+        
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            i.user: discord.PermissionOverwrite(view_channel=True, connect=True)
+        }
+        
+        channel = await guild.create_voice_channel(name=w_id, category=category, overwrites=overwrites)
+        active_waves[w_id] = {"owner": i.user.id, "channel": channel.id}
+        
+        await i.user.move_to(channel)
+        
+        msg = await i.channel.send("تم صنع الموجه بنجاح ✅")
+        await asyncio.sleep(3)
         await msg.delete()
 
 class JoinModal(discord.ui.Modal, title='دخول موجه'):
@@ -62,43 +63,35 @@ class JoinModal(discord.ui.Modal, title='دخول موجه'):
     
     async def on_submit(self, i: discord.Interaction):
         w_id = self.w_id.value
-        if w_id not in active_waves: return await i.response.send_message("❌ هذه الموجة غير موجودة!", ephemeral=True)
-        
-        msg = await i.channel.send(f"جاري الدخول للموجه {w_id} لـ {i.user.mention}... <a:emoji_1:1514266487479599306>")
-        await i.response.defer(ephemeral=True)
-        await asyncio.sleep(5)
+        if w_id not in active_waves or active_waves[w_id] == "pending":
+            return await i.response.send_message("❌ خطأ: الموجه غير موجودة!", ephemeral=True)
         
         ch = i.guild.get_channel(active_waves[w_id]['channel'])
-        if ch:
-            await ch.set_permissions(i.user, view_channel=True, connect=True)
-            await i.user.move_to(ch)
-            await msg.edit(content=f"تم الدخول للموجه بنجاح ✅")
-        await asyncio.sleep(2)
-        await msg.delete()
+        await ch.set_permissions(i.user, view_channel=True, connect=True)
+        await i.user.move_to(ch)
+        await i.response.send_message("تم الدخول بنجاح ✅", ephemeral=True)
 
 class LeaveModal(discord.ui.Modal, title='خروج من موجه'):
     w_id = discord.ui.TextInput(label='رقم الموجة')
     
     async def on_submit(self, i: discord.Interaction):
         w_id = self.w_id.value
-        if w_id not in active_waves: return await i.response.send_message("❌ الموجة غير موجودة!", ephemeral=True)
+        if w_id not in active_waves:
+            return await i.response.send_message("❌ خطأ: الموجه غير موجودة!", ephemeral=True)
+        
         ch = i.guild.get_channel(active_waves[w_id]['channel'])
-        if ch:
-            await ch.set_permissions(i.user, view_channel=False, connect=False)
-            if i.user.voice and i.user.voice.channel == ch: await i.user.move_to(None)
-            await i.response.send_message(f"تم خروجك وإخفاء الموجة {w_id} ✅", ephemeral=True)
+        await ch.set_permissions(i.user, view_channel=False, connect=False)
+        if i.user.voice and i.user.voice.channel == ch:
+            await i.user.move_to(None)
+        await i.response.send_message("تم الخروج وإخفاء الموجه ✅", ephemeral=True)
 
 @bot.event
 async def on_ready():
     bot.add_view(WaveView())
-    print(f'البوت {bot.user} يعمل الآن!')
+    print(f'البوت {bot.user} جاهز للعمل!')
 
 @bot.command(name="887788718")
 async def setup(ctx): 
-    await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء من الأزرار:", view=WaveView())
+    await ctx.send("📡 **نظام الموجات اللاسلكية**\nاختر الإجراء:", view=WaveView())
 
-if __name__ == "__main__":
-    if TOKEN:
-        bot.run(TOKEN)
-    else:
-        print("خطأ: لم يتم العثور على التوكن في المتغيرات!")
+bot.run(TOKEN)
